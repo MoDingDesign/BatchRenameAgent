@@ -134,7 +134,7 @@ Rules:
             }
         ];
 
-        const MAX_TURNS = 10; // Prevent infinite loops
+        const MAX_TURNS = 50; // Increased to allow batch processing of images
 
         try {
             for (let i = 0; i < MAX_TURNS; i++) {

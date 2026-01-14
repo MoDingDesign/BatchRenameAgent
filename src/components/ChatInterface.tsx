@@ -1,144 +1,152 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Loader2, Wand2, Check, X, ArrowRight } from "lucide-react"
-import { agentService } from '@/lib/agent-service'
+import { Loader2, Wand2, ArrowRight, Check, X } from "lucide-react"
 import { RenamePlan } from '@/types/agent'
+import { cn } from '@/lib/utils'
 
 interface ChatInterfaceProps {
-    files: FileEntry[]
-    onApplyPlan: (plan: RenamePlan) => void
+    onGenerate: (instruction: string) => void
+    onApply: () => void
+    onCancel: () => void
+    isLoading: boolean
+    plan: RenamePlan | null
+    logs: string[]
+    error: string | null
 }
 
-export function ChatInterface({ files, onApplyPlan }: ChatInterfaceProps) {
+export function ChatInterface({
+    onGenerate,
+    onApply,
+    onCancel,
+    isLoading,
+    plan,
+    logs,
+    error
+}: ChatInterfaceProps) {
     const [instruction, setInstruction] = useState('')
-    const [isLoading, setIsLoading] = useState(false)
-    const [logs, setLogs] = useState<string[]>([])
-    const [plan, setPlan] = useState<RenamePlan | null>(null)
-    const [error, setError] = useState<string | null>(null)
+    // Auto-scroll logs
+    const logsEndRef = useRef<HTMLDivElement>(null)
 
-    const handleSubmit = async () => {
-        if (!instruction.trim()) return
-
-        setIsLoading(true)
-        setError(null)
-        setPlan(null)
-        setLogs([]) // Clear previous logs
-
-        try {
-            // Filter out directories from the list sent to AI, assuming we rename files inside?
-            // Or send everything. Let's send everything for context.
-            const filePaths = files.map(f => f.path)
-
-            const generatedPlan = await agentService.generateRenamePlan(filePaths, instruction, (msg) => {
-                setLogs(prev => [...prev, msg])
-            })
-
-            setPlan(generatedPlan)
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Unknown error occurred')
-        } finally {
-            setIsLoading(false)
+    useEffect(() => {
+        if (logsEndRef.current) {
+            logsEndRef.current.scrollIntoView({ behavior: 'smooth' })
         }
+    }, [logs])
+
+    const handleSubmit = () => {
+        if (!instruction.trim()) return
+        onGenerate(instruction)
     }
 
     return (
-        <div className="flex flex-col h-full gap-4">
-            {/* Diff Preview Area */}
-            <div className="flex-1 min-h-0 border rounded-lg bg-card overflow-hidden flex flex-col">
-                <div className="p-2 border-b bg-muted/30 font-medium text-sm flex justify-between items-center">
-                    <span>Preview Changes</span>
-                    {plan && <span className="text-xs text-muted-foreground">{plan.summary}</span>}
-                </div>
-
-                <ScrollArea className="flex-1 p-4">
-                    {!plan && !isLoading && !error && (
-                        <div className="h-full flex flex-col items-center justify-center text-muted-foreground opacity-50">
-                            <Wand2 className="w-12 h-12 mb-2" />
-                            <p>Enter instructions below to generate a preview</p>
+        <div className="flex flex-col gap-4 w-full">
+            {/* Logs / Status Area (Floating above input) */}
+            {(isLoading || logs.length > 0 || error) && !plan && (
+                <div className="bg-background/80 backdrop-blur-xl border shadow-lg rounded-2xl p-4 max-h-[200px] overflow-y-auto animate-in slide-in-from-bottom-2 flex flex-col gap-2">
+                    {logs.map((log, i) => (
+                        <div key={i} className="flex gap-2 text-sm text-muted-foreground items-start font-mono">
+                            <span className="text-primary/50 shrink-0 mt-0.5">❯</span>
+                            <span>{log}</span>
+                        </div>
+                    ))}
+                    {isLoading && (
+                        <div className="flex gap-2 text-sm text-primary animate-pulse items-center font-medium">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Thinking...
                         </div>
                     )}
-
-                    {/* Progress / Logs Area */}
-                    {(isLoading || logs.length > 0) && !plan && !error && (
-                        <div className="space-y-2 mb-4 font-mono text-xs text-muted-foreground">
-                            {logs.map((log, i) => (
-                                <div key={i} className="animate-in fade-in slide-in-from-bottom-1 duration-300">
-                                    {log}
-                                </div>
-                            ))}
-                            {isLoading && (
-                                <div className="flex items-center gap-2 text-primary/70 pt-2">
-                                    <Loader2 className="w-3 h-3 animate-spin" />
-                                    <span>Thinking...</span>
-                                </div>
-                            )}
-                        </div>
-                    )}
-
                     {error && (
-                        <div className="p-4 rounded-md bg-destructive/10 text-destructive text-sm">
-                            Error: {error}
+                        <div className="flex gap-2 text-sm text-destructive items-center font-medium bg-destructive/5 p-2 rounded-lg border border-destructive/10">
+                            <X className="w-4 h-4" />
+                            {error}
                         </div>
                     )}
+                    <div ref={logsEndRef} />
+                </div>
+            )}
 
-                    {plan && (
-                        <div className="space-y-4">
-                            {plan.operations.length === 0 ? (
-                                <p className="text-center text-muted-foreground">No files match criteria.</p>
-                            ) : (
-                                plan.operations.map((op, idx) => (
-                                    <div key={idx} className="flex items-center gap-2 text-sm p-2 rounded bg-muted/50">
-                                        <div className="flex-1 font-mono text-xs truncate text-red-500/80" title={op.original}>
-                                            {op.original.split('/').pop()}
-                                        </div>
-                                        <ArrowRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                                        <div className="flex-1 font-mono text-xs truncate text-green-600 font-bold" title={op.new}>
-                                            {op.new.split('/').pop()}
-                                        </div>
-                                    </div>
-                                ))
-                            )}
+            {/* Main Command Bar */}
+            <div className={cn(
+                "relative transition-all duration-300 w-full max-w-2xl mx-auto",
+                plan ? "" : ""
+            )}>
+                {plan ? (
+                    // Confirmation Mode - Compact Pill
+                    <div className="bg-background/90 backdrop-blur-2xl border shadow-2xl rounded-full p-1.5 ring-1 ring-black/5 dark:ring-white/10 flex items-center gap-2 animate-in fade-in zoom-in-95">
+                        <div className="flex-1 min-w-0 px-4">
+                            <div className="flex items-center gap-2">
+                                <span className="font-semibold text-sm whitespace-nowrap">Plan Ready</span>
+                                <span className="text-muted-foreground/30">|</span>
+                                <span className="text-xs text-muted-foreground truncate max-w-[200px]">{plan.summary}</span>
+                            </div>
                         </div>
-                    )}
-                </ScrollArea>
-
-                {/* Confirm Actions */}
-                {plan && plan.operations.length > 0 && (
-                    <div className="p-4 border-t bg-muted/20 flex justify-end gap-2">
-                        <Button variant="ghost" onClick={() => setPlan(null)}>
-                            <X className="w-4 h-4 mr-1" /> Discard
-                        </Button>
-                        <Button onClick={() => onApplyPlan(plan)}>
-                            <Check className="w-4 h-4 mr-1" /> Apply Changes
-                        </Button>
+                        <div className="flex gap-1 shrink-0">
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={onCancel}
+                                className="rounded-full w-9 h-9 hover:bg-muted text-muted-foreground hover:text-foreground"
+                                title="Cancel"
+                            >
+                                <X className="w-4 h-4" />
+                            </Button>
+                            <Button
+                                onClick={onApply}
+                                disabled={isLoading}
+                                className="rounded-full px-4 bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm h-9"
+                            >
+                                {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-2" /> : <Check className="w-3.5 h-3.5 mr-2" />}
+                                Apply
+                            </Button>
+                        </div>
+                    </div>
+                ) : (
+                    // Input Mode - ChatGPT Style Pill
+                    <div className="bg-background shadow-2xl rounded-[26px] border ring-1 ring-black/5 dark:ring-white/10 flex items-end p-2 gap-2 relative transition-all focus-within:ring-2 focus-within:ring-primary/20">
+                        <div className="pl-3 py-2.5 flex items-center justify-center text-muted-foreground/40 shrink-0">
+                            <Wand2 className="w-5 h-5" />
+                        </div>
+                        <Textarea
+                            value={instruction}
+                            onChange={(e) => setInstruction(e.target.value)}
+                            placeholder="Ask rename to..."
+                            disabled={isLoading}
+                            className="flex-1 min-h-[44px] max-h-[200px] bg-transparent border-0 ring-0 focus-visible:ring-0 focus-visible:ring-offset-0 resize-none py-3 px-2 placeholder:text-muted-foreground/40 text-base shadow-none leading-relaxed"
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                                    e.preventDefault()
+                                    handleSubmit()
+                                }
+                            }}
+                        />
+                        <div className="pb-1 pr-1 shrink-0">
+                            <Button
+                                size="icon"
+                                className={cn(
+                                    "w-8 h-8 rounded-full shadow-none transition-all duration-200",
+                                    instruction.trim() ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                                )}
+                                onClick={handleSubmit}
+                                disabled={isLoading || !instruction.trim()}
+                            >
+                                {isLoading ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                    <ArrowRight className="w-4 h-4" />
+                                )}
+                            </Button>
+                        </div>
                     </div>
                 )}
             </div>
 
-            {/* Input Area */}
-            <div className="flex gap-2">
-                <Textarea
-                    value={instruction}
-                    onChange={(e) => setInstruction(e.target.value)}
-                    placeholder="e.g. Replace spaces with underscores, or add date prefix..."
-                    className="resize-none min-h-[50px] shadow-sm"
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault()
-                            handleSubmit()
-                        }
-                    }}
-                />
-                <Button
-                    className="h-auto w-14"
-                    onClick={handleSubmit}
-                    disabled={isLoading || !instruction.trim()}
-                >
-                    <ArrowRight className="w-5 h-5" />
-                </Button>
-            </div>
+            {/* Hint Text */}
+            {!plan && !isLoading && !error && instruction.length === 0 && (
+                <div className="text-center text-xs text-muted-foreground/40 animate-in fade-in delay-500">
+                    Press <kbd className="font-mono bg-muted/50 px-1 rounded">Enter</kbd> to generate plan
+                </div>
+            )}
         </div>
     )
 }
